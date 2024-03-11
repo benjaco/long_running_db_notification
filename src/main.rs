@@ -1,13 +1,14 @@
 mod message_sender;
 mod message_formatter;
 mod database;
+mod bot_responer;
 
 use futures::future::join_all;
 use std::env;
 use std::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use teloxide::{prelude::*, utils::command::BotCommands};
+use teloxide::prelude::*;
 use tokio::signal;
 use tokio::task::JoinHandle;
 
@@ -59,40 +60,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let bot_handle = tokio::spawn(async move {
         let bot = Bot::new(env::var(ENV_BOTKEY).unwrap());
-        Command::repl(bot, answer).await;
+        bot_responer::Command::repl(bot, bot_responer::answer).await;
         println!("Bot is done");
     });
     join_handlers.push(bot_handle);
 
     join_all(join_handlers).await;
     println!("Shutdown complete.");
-    Ok(())
-}
-
-#[derive(BotCommands, Clone)]
-#[command(
-    rename_rule = "lowercase",
-    description = "These commands are supported:"
-)]
-enum Command {
-    #[command(description = "display this text.")]
-    Start,
-    #[command(description = "display this text.")]
-    Help,
-    #[command(description = "get the chat id.")]
-    ChatId,
-}
-
-async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
-    match cmd {
-        Command::Help | Command::Start => {
-            bot.send_message(msg.chat.id, Command::descriptions().to_string())
-                .await?
-        }
-        Command::ChatId => {
-            let chatid = msg.chat.id.0;
-            bot.send_message(msg.chat.id, format!("{chatid}")).await?
-        }
-    };
     Ok(())
 }
