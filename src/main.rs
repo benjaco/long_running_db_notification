@@ -15,6 +15,7 @@ use tokio::{
     task::{self, JoinHandle},
     time,
 };
+use async_trait::async_trait;
 
 const ENV_CHATID: &str = "CHAT_ID";
 const ENV_BOTKEY: &str = "BOT_KEY";
@@ -42,10 +43,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Trying to connect to {} databases", databases.len());
 
+
+
+
     for db in databases {
         let shutdown_signal_clone: Arc<AtomicBool> = shutdown_signal.clone();
+        let bot = Bot::new(env::var(ENV_BOTKEY).unwrap());
+        let bot_messenger = BotMessenger::new(bot);
+
         let handler = tokio::spawn(async move {
-            let _ = pull_database(db, shutdown_signal_clone).await;
+            let _ = pull_database(db, shutdown_signal_clone, bot_messenger).await;
         });
         join_handlers.push(handler);
     }
@@ -90,6 +97,58 @@ async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
     Ok(())
 }
 
+
+#[async_trait]
+trait Messenger {
+    async fn send(&self, query: RunningQuery) -> Result<(), String>;
+}
+
+struct BotMessenger {
+    bot: Bot,
+}
+
+impl BotMessenger {
+    fn new(bot: Bot) -> Self {
+        Self { bot }
+    }
+}
+
+#[async_trait]
+impl Messenger for BotMessenger {
+    async fn send(&self, query: RunningQuery) -> Result<(), String> {
+        let formated_msg = fmt::format(format_args!(
+            "Query done \\- {} by {}: \n ```sql\n{}```",
+            escape_markdown_v2(&time_diff_text(query.query_start)),
+            escape_markdown_v2(&query.application_name),
+            escape_markdown_v2(&query.query)
+        ));
+    
+        let result = match &self.bot
+            .send_message(
+                ChatId(env::var(ENV_CHATID).unwrap().parse::<i64>().unwrap()),
+                formated_msg,
+            )
+            .parse_mode(ParseMode::MarkdownV2)
+            .send()
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(_error) => {
+                println!("{_error:?}");
+                Err("Couldnt send message".to_owned())
+            }
+        };
+        result
+    }
+}
+
+
+
+
+
+
+
+
 #[derive(sqlx::FromRow, PartialEq, Eq, Hash, Clone, Serialize, Deserialize, Debug)]
 struct RunningQuery {
     query_start: chrono::DateTime<chrono::Utc>,
@@ -98,10 +157,14 @@ struct RunningQuery {
     query: String,
 }
 
-async fn pull_database(
+async fn pull_database<M>(
     database_conncection_string: String,
     shutdown_signal: Arc<AtomicBool>,
-) -> Result<(), sqlx::Error> {
+    messenger: M,
+) -> Result<(), sqlx::Error>
+where
+    M: Messenger + Send + Sync + 'static,
+{
     let database_conncection_string = database_conncection_string.to_owned();
 
     let forever = task::spawn(async move {
@@ -155,11 +218,7 @@ async fn pull_database(
                         running_queries.difference(&currently_queries).collect();
 
                     for ele in slowly_finnished_queries {
-                        let cbv = send_msg(ele.to_owned()).await;
-                        match cbv {
-                            Ok(_) => {}
-                            Err(error) => println!("{error}"),
-                        }
+                        let _ = messenger.send(ele.to_owned()).await;
                     }
 
                     running_queries = currently_queries;
@@ -211,29 +270,4 @@ fn escape_markdown_v2(text: &str) -> String {
     escaped_text
 }
 
-async fn send_msg(query: RunningQuery) -> Result<(), String> {
-    let formated_msg = fmt::format(format_args!(
-        "Query done \\- {} by {}: \n ```sql\n{}```",
-        escape_markdown_v2(&time_diff_text(query.query_start)),
-        escape_markdown_v2(&query.application_name),
-        escape_markdown_v2(&query.query)
-    ));
-    let bot = Bot::new(env::var(ENV_BOTKEY).unwrap());
 
-    let result = match bot
-        .send_message(
-            ChatId(env::var(ENV_CHATID).unwrap().parse::<i64>().unwrap()),
-            formated_msg,
-        )
-        .parse_mode(ParseMode::MarkdownV2)
-        .send()
-        .await
-    {
-        Ok(_) => Ok(()),
-        Err(_error) => {
-            println!("{_error:?}");
-            Err("Couldnt send message".to_owned())
-        }
-    };
-    result
-}
