@@ -99,10 +99,3 @@ The application will start monitoring the specified databases for long-running q
 - **Notification Frequency**: Adjust the interval duration in the `pull_database` function to increase or decrease how often the database is polled.
 - **Notification Message**: Customize the message format in `send_msg` to include more details or change the appearance of the Telegram message.
 
-## Contributing
-
-Contributions are welcome! Please feel free to submit a pull request or open an issue if you have suggestions for improvements or have identified bugs.
-
-## License
-
-Specify your license here, or if your code is open-source, you might want to use a common open-source license like MIT, GPL, or Apache License 2.0.
